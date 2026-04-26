@@ -20,7 +20,7 @@ document.getElementById("micBtn").onclick = async () => {
     const formData = new FormData();
     formData.append("file", audioBlob, "speech.wav");
 
-    const res = await fetch("https://your-space-url/speech", {
+    const res = await fetch("https://huggingface.co/spaces/pranilm/MBTI", {
       method: "POST",
       body: formData
     });
