@@ -30,7 +30,7 @@ document.getElementById("micBtn").onclick = async () => {
     addMessage("👤", transcript);
 
     // Send transcript to chatbot /run endpoint
-    const chatRes = await fetch("https://your-space-url/run", {
+    const chatRes = await fetch("https://huggingface.co/spaces/pranilm/MBTI/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ input: transcript })
