@@ -1,0 +1,24 @@
+name: Init Hugging Face Dataset
+
+on:
+  workflow_dispatch:   # run manually when needed
+
+jobs:
+  init-dataset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install datasets
+
+      - name: Run init_dataset.py
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python init_dataset.py
