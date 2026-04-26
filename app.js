@@ -1,25 +1,50 @@
-// Speech capture via Web Speech API (browser side)
-const micBtn = document.getElementById("micBtn");
 const chatDiv = document.getElementById("chat");
 
-micBtn.onclick = () => {
-  const recognition = new webkitSpeechRecognition();
-  recognition.lang = "mr-IN"; // Marathi locale
-  recognition.start();
+// Record audio using MediaRecorder API
+let mediaRecorder;
+let audioChunks = [];
 
-  recognition.onresult = async (event) => {
-    const text = event.results[0][0].transcript;
-    addMessage("👤", text);
+document.getElementById("micBtn").onclick = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  mediaRecorder = new MediaRecorder(stream);
 
-    // Send to backend (Mistral + search + MBTI)
-    const res = await fetch("https://your-space-url/run", {
+  mediaRecorder.ondataavailable = event => {
+    audioChunks.push(event.data);
+  };
+
+  mediaRecorder.onstop = async () => {
+    const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+    audioChunks = [];
+
+    // Send audio to Hugging Face Space /speech endpoint
+    const formData = new FormData();
+    formData.append("file", audioBlob, "speech.wav");
+
+    const res = await fetch("https://your-space-url/speech", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({input: text})
+      body: formData
     });
     const data = await res.json();
-    addMessage("🤖", data.reply);
+    const transcript = data.transcript;
+
+    addMessage("👤", transcript);
+
+    // Send transcript to chatbot /run endpoint
+    const chatRes = await fetch("https://your-space-url/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: transcript })
+    });
+    const chatData = await chatRes.json();
+    addMessage("🤖", chatData.reply);
   };
+
+  mediaRecorder.start();
+
+  // Stop recording after 5 seconds (adjust as needed)
+  setTimeout(() => {
+    mediaRecorder.stop();
+  }, 5000);
 };
 
 function addMessage(sender, msg) {
