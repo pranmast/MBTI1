@@ -20,7 +20,7 @@ document.getElementById("micBtn").onclick = async () => {
     const formData = new FormData();
     formData.append("file", audioBlob, "speech.wav");
 
-    const res = await fetch("https://huggingface.co/spaces/pranilm/MBTI", {
+    const res = await fetch("https://pranilm-mbti.hf.space", {
       method: "POST",
       body: formData
     });
@@ -30,7 +30,7 @@ document.getElementById("micBtn").onclick = async () => {
     addMessage("👤", transcript);
 
     // Send transcript to chatbot /run endpoint
-    const chatRes = await fetch("https://huggingface.co/spaces/pranilm/MBTI/run", {
+    const chatRes = await fetch("https://pranilm-mbti.hf.space/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ input: transcript })
