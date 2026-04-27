@@ -1,54 +1,77 @@
 const chatDiv = document.getElementById("chat");
-
-// Record audio using MediaRecorder API
 let mediaRecorder;
 let audioChunks = [];
 
 document.getElementById("micBtn").onclick = async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  mediaRecorder = new MediaRecorder(stream);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    
+    // UI Feedback: Show the user we are listening
+    document.getElementById("micBtn").textContent = "🛑 Recording...";
 
-  mediaRecorder.ondataavailable = event => {
-    audioChunks.push(event.data);
-  };
+    mediaRecorder.ondataavailable = event => {
+      audioChunks.push(event.data);
+    };
 
-  mediaRecorder.onstop = async () => {
-    const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
-    audioChunks = [];
+    mediaRecorder.onstop = async () => {
+      document.getElementById("micBtn").textContent = "⏳ Processing...";
+      
+      const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+      audioChunks = [];
 
-    // Send audio to Hugging Face Space /speech endpoint
-    const formData = new FormData();
-    formData.append("file", audioBlob, "speech.wav");
+      const formData = new FormData();
+      formData.append("file", audioBlob, "speech.wav");
 
-    const res = await fetch("https://pranilm-aatman.hf.space/speech", {
-      method: "POST",
-      body: formData
-    });
-    const data = await res.json();
-    const transcript = data.transcript;
+      try {
+        // --- STEP 1: SPEECH TO TEXT ---
+        const res = await fetch("https://pranilm-aatman.hf.space/speech", {
+          method: "POST",
+          body: formData
+        });
 
-    addMessage("👤", transcript);
+        if (!res.ok) throw new Error(`STT Endpoint Error: ${res.status}`);
 
-    // Send transcript to chatbot /run endpoint
-    const chatRes = await fetch("https://pranilm-aatman.hf.space/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input: transcript })
-    });
-    const chatData = await chatRes.json();
-    addMessage("🤖", chatData.reply);
-  };
+        const data = await res.json();
+        const transcript = data.transcript || data.text; // Support 'text' or 'transcript' keys
 
-  mediaRecorder.start();
+        if (!transcript) throw new Error("No transcript received");
+        addMessage("👤", transcript);
 
-  // Stop recording after 5 seconds (adjust as needed)
-  setTimeout(() => {
-    mediaRecorder.stop();
-  }, 5000);
+        // --- STEP 2: CHATBOT RESPONSE ---
+        const chatRes = await fetch("https://pranilm-aatman.hf.space/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input: transcript })
+        });
+
+        if (!chatRes.ok) throw new Error(`Chat Endpoint Error: ${chatRes.status}`);
+
+        const chatData = await chatRes.json();
+        addMessage("🤖", chatData.reply);
+
+      } catch (err) {
+        console.error("Pipeline Error:", err);
+        addMessage("⚠️", "System error: " + err.message);
+      } finally {
+        document.getElementById("micBtn").textContent = "🎤 Start Recording";
+      }
+    };
+
+    mediaRecorder.start();
+    setTimeout(() => { if(mediaRecorder.state === "recording") mediaRecorder.stop(); }, 5000);
+
+  } catch (err) {
+    console.error("Mic Error:", err);
+    alert("Could not access microphone. Check permissions!");
+  }
 };
 
 function addMessage(sender, msg) {
   const p = document.createElement("p");
-  p.textContent = `${sender}: ${msg}`;
+  // Optional: Add a little style to differentiate
+  p.style.margin = "8px 0";
+  p.innerHTML = `<strong>${sender}</strong>: ${msg}`;
   chatDiv.appendChild(p);
+  chatDiv.scrollTop = chatDiv.scrollHeight; // Auto-scroll to bottom
 }
