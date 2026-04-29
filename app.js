@@ -4,23 +4,37 @@ let audioChunks = [];
 
 document.getElementById("micBtn").onclick = async () => {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream);
+    // 1. Force 16kHz and Mono for Vosk compatibility
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true
+        } 
+    });
+
+    // 2. Specify mimeType to help the backend identify the stream
+    // Many browsers use audio/webm, which Vosk can handle if sent correctly
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
     
-    // UI Feedback: Show the user we are listening
     document.getElementById("micBtn").textContent = "🛑 Recording...";
+    document.getElementById("micBtn").classList.add("recording");
 
     mediaRecorder.ondataavailable = event => {
-      audioChunks.push(event.data);
+      if (event.data.size > 0) {
+        audioChunks.push(event.data);
+      }
     };
 
     mediaRecorder.onstop = async () => {
-      document.getElementById("micBtn").textContent = "⏳ Processing...";
+      document.getElementById("micBtn").textContent = "⏳ Thinking...";
       
-      const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+      const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
       audioChunks = [];
 
       const formData = new FormData();
+      // Even if recorded as webm, we name it speech.wav so the server 
+      // knows it's an audio file
       formData.append("file", audioBlob, "speech.wav");
 
       try {
@@ -33,9 +47,13 @@ document.getElementById("micBtn").onclick = async () => {
         if (!res.ok) throw new Error(`STT Endpoint Error: ${res.status}`);
 
         const data = await res.json();
-        const transcript = data.transcript || data.text; // Support 'text' or 'transcript' keys
+        const transcript = data.transcript;
 
-        if (!transcript) throw new Error("No transcript received");
+        // Check if the transcript is empty (Vosk couldn't hear anything)
+        if (!transcript || transcript.trim() === "") {
+            throw new Error("I couldn't quite hear that. Try speaking louder!");
+        }
+        
         addMessage("👤", transcript);
 
         // --- STEP 2: CHATBOT RESPONSE ---
@@ -45,33 +63,39 @@ document.getElementById("micBtn").onclick = async () => {
           body: JSON.stringify({ input: transcript })
         });
 
-        if (!chatRes.ok) throw new Error(`Chat Endpoint Error: ${chatRes.status}`);
+        if (!chatRes.ok) throw new Error(`Chat Error: ${chatRes.status}`);
 
         const chatData = await chatRes.json();
         addMessage("🤖", chatData.reply);
 
       } catch (err) {
         console.error("Pipeline Error:", err);
-        addMessage("⚠️", "System error: " + err.message);
+        addMessage("⚠️", err.message);
       } finally {
         document.getElementById("micBtn").textContent = "🎤 Start Recording";
+        document.getElementById("micBtn").classList.remove("recording");
+        // Stop all audio tracks to release the microphone
+        stream.getTracks().forEach(track => track.stop());
       }
     };
 
     mediaRecorder.start();
-    setTimeout(() => { if(mediaRecorder.state === "recording") mediaRecorder.stop(); }, 5000);
+    
+    // Stop recording after 4 seconds
+    setTimeout(() => { 
+        if(mediaRecorder.state === "recording") mediaRecorder.stop(); 
+    }, 4000);
 
   } catch (err) {
     console.error("Mic Error:", err);
-    alert("Could not access microphone. Check permissions!");
+    alert("Microphone access denied or not supported.");
   }
 };
 
 function addMessage(sender, msg) {
   const p = document.createElement("p");
-  // Optional: Add a little style to differentiate
-  p.style.margin = "8px 0";
+  p.style.animation = "fadeIn 0.3s ease-in";
   p.innerHTML = `<strong>${sender}</strong>: ${msg}`;
   chatDiv.appendChild(p);
-  chatDiv.scrollTop = chatDiv.scrollHeight; // Auto-scroll to bottom
+  chatDiv.scrollTop = chatDiv.scrollHeight;
 }
