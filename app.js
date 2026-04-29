@@ -2,93 +2,75 @@ const chatDiv = document.getElementById("chat");
 let mediaRecorder;
 let audioChunks = [];
 
+// ... existing variables ...
+
 document.getElementById("micBtn").onclick = async () => {
   try {
-    // 1. Force 16kHz and Mono for Vosk compatibility
     const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-            sampleRate: 16000,
-            channelCount: 1,
-            echoCancellation: true
-        } 
+        audio: { sampleRate: 16000, channelCount: 1 } 
     });
 
-    // 2. Specify mimeType to help the backend identify the stream
-    // Many browsers use audio/webm, which Vosk can handle if sent correctly
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    // Use a more generic mimeType if webm fails
+    const options = { mimeType: 'audio/webm;codecs=opus' };
+    mediaRecorder = new MediaRecorder(stream, options);
     
-    document.getElementById("micBtn").textContent = "🛑 Recording...";
-    document.getElementById("micBtn").classList.add("recording");
+    audioChunks = []; // Clear previous data
 
     mediaRecorder.ondataavailable = event => {
-      if (event.data.size > 0) {
-        audioChunks.push(event.data);
-      }
+      if (event.data.size > 0) audioChunks.push(event.data);
     };
 
     mediaRecorder.onstop = async () => {
-      document.getElementById("micBtn").textContent = "⏳ Thinking...";
-      
-      const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-      audioChunks = [];
+      // 1. SMALL DELAY: Ensure the last chunk is pushed
+      await new Promise(resolve => setTimeout(resolve, 200));
 
+      if (audioChunks.length === 0) {
+          addMessage("⚠️", "No audio captured.");
+          return;
+      }
+
+      // 2. BLOB CREATION
+      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
       const formData = new FormData();
-      // Even if recorded as webm, we name it speech.wav so the server 
-      // knows it's an audio file
-      formData.append("file", audioBlob, "speech.wav");
+      formData.append("file", audioBlob, "speech.webm"); // Use .webm extension
+
+      document.getElementById("micBtn").textContent = "⏳ Thinking...";
 
       try {
-        // --- STEP 1: SPEECH TO TEXT ---
         const res = await fetch("https://pranilm-aatman.hf.space/speech", {
           method: "POST",
           body: formData
         });
 
-        if (!res.ok) throw new Error(`STT Endpoint Error: ${res.status}`);
-
         const data = await res.json();
-        const transcript = data.transcript;
+        
+        // DEBUG: See what the server actually caught
+        console.log("Server Debug:", data);
 
-        // Check if the transcript is empty (Vosk couldn't hear anything)
-        if (!transcript || transcript.trim() === "") {
-            throw new Error("I couldn't quite hear that. Try speaking louder!");
+        if (!data.transcript || data.transcript.trim() === "") {
+            throw new Error("Vosk heard nothing. Try holding the mic closer.");
         }
         
-        addMessage("👤", transcript);
+        addMessage("👤", data.transcript);
 
-        // --- STEP 2: CHATBOT RESPONSE ---
-        const chatRes = await fetch("https://pranilm-aatman.hf.space/run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input: transcript })
-        });
-
-        if (!chatRes.ok) throw new Error(`Chat Error: ${chatRes.status}`);
-
-        const chatData = await chatRes.json();
-        addMessage("🤖", chatData.reply);
+        // ... rest of chatbot logic ...
 
       } catch (err) {
-        console.error("Pipeline Error:", err);
         addMessage("⚠️", err.message);
       } finally {
         document.getElementById("micBtn").textContent = "🎤 Start Recording";
-        document.getElementById("micBtn").classList.remove("recording");
-        // Stop all audio tracks to release the microphone
         stream.getTracks().forEach(track => track.stop());
       }
     };
 
-    mediaRecorder.start();
+    mediaRecorder.start(100); // Collect data in 100ms chunks for reliability
     
-    // Stop recording after 4 seconds
     setTimeout(() => { 
         if(mediaRecorder.state === "recording") mediaRecorder.stop(); 
     }, 4000);
 
   } catch (err) {
-    console.error("Mic Error:", err);
-    alert("Microphone access denied or not supported.");
+    alert("Mic access error.");
   }
 };
 
