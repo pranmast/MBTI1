@@ -3,7 +3,7 @@ const liveStatus = document.createElement("div");
 liveStatus.style = "color: #007bff; font-weight: bold; margin-bottom: 10px; font-size: 0.9em; min-height: 1.5em;";
 chatDiv.parentNode.insertBefore(liveStatus, chatDiv);
 
-const SpeechRecognition = window.Recognition || window.webkitSpeechRecognition;
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = new SpeechRecognition();
 
 recognition.lang = "en-US"; 
@@ -15,7 +15,7 @@ let silenceTimer = null;
 function speak(text) {
     window.speechSynthesis.cancel();
     const msg = new SpeechSynthesisUtterance(text);
-    msg.lang = "hi-IN"; // Set to Hindi/Marathi friendly voice
+    msg.lang = "hi-IN"; 
     window.speechSynthesis.speak(msg);
 }
 
@@ -28,7 +28,7 @@ recognition.onresult = (event) => {
     const currentText = interimTranscript.toLowerCase().trim();
     liveStatus.textContent = "🟢 Listening: " + currentText;
 
-    // SILENCE DETECTION: Wait 3 seconds of total silence before sending
+    // Wait for 3 seconds of silence before processing
     clearTimeout(silenceTimer); 
     silenceTimer = setTimeout(() => {
         if (currentText.length > 0) {
@@ -43,7 +43,6 @@ async function executeRequest(userInput) {
     addMessage("👤", userInput);
 
     try {
-        // Points to your local FastAPI backend
         const res = await fetch("/run", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -53,9 +52,8 @@ async function executeRequest(userInput) {
         addMessage("🤖", data.reply);
         speak(data.reply);
     } catch (err) {
-        addMessage("⚠️", "Connection Error. Check if Space is sleeping.");
+        addMessage("⚠️", "Connection Error. Space might be restarting.");
     } finally {
-        // Wait for bot to finish speaking before listening again
         const checkSpeech = setInterval(() => {
             if (!window.speechSynthesis.speaking) {
                 clearInterval(checkSpeech);
