@@ -1,7 +1,8 @@
 const chatDiv = document.getElementById("chat");
-// Create a live preview element
+
+// UI element for live transcript feedback
 const liveStatus = document.createElement("div");
-liveStatus.style = "color: #888; font-style: italic; margin-bottom: 10px; font-size: 0.9em;";
+liveStatus.style = "color: #888; font-style: italic; margin-bottom: 10px; font-size: 0.9em; min-height: 1.2em;";
 chatDiv.parentNode.insertBefore(liveStatus, chatDiv);
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -9,7 +10,7 @@ let recognition = new SpeechRecognition();
 
 recognition.lang = "mr-IN"; 
 recognition.continuous = true;
-recognition.interimResults = true; // Crucial for live feedback
+recognition.interimResults = true; // Shows what it's hearing live
 
 function speak(text) {
     window.speechSynthesis.cancel();
@@ -30,27 +31,33 @@ recognition.onresult = async (event) => {
         }
     }
 
-    // Show what is being recognized in real-time
-    liveStatus.textContent = "Listening: " + (interimTranscript || finalTranscript);
+    // Update the live feedback on screen
+    const currentText = (finalTranscript || interimTranscript).toLowerCase();
+    liveStatus.textContent = "Listening: " + currentText;
 
-    const checkText = (finalTranscript || interimTranscript).toLowerCase();
-
-    // Trigger word detection
-    if (checkText.includes("aatman") || checkText.includes("आत्मान")) {
-        recognition.stop(); // Stop listening to process[cite: 3]
-        const cleanInput = checkText.split(/aatman|आत्मान/i).pop().trim();
-        if (cleanInput) {
-            executeAatman(cleanInput);
+    // Wake word or phrase detection
+    if (currentText.includes("aatman") || currentText.includes("आत्मान")) {
+        recognition.stop(); 
+        
+        // Extract the actual query following the wake word
+        const query = currentText.split(/aatman|आत्मान/i).pop().trim();
+        
+        if (query) {
+            executeAatman(query);
         } else {
             speak("हो प्रनील, बोला?");
-            recognition.start();
+            setTimeout(() => recognition.start(), 1000);
         }
+    }
+    else if (currentText.includes("over and out") || currentText.includes("ओव्हर अँड आऊट")) {
+        recognition.stop();
+        executeAatman("over and out");
     }
 };
 
 async function executeAatman(userInput) {
     addMessage("👤", userInput);
-    liveStatus.textContent = "Thinking...";
+    liveStatus.textContent = "Processing...";
 
     try {
         const res = await fetch("https://pranilm-aatman.hf.space/run", {
@@ -62,13 +69,18 @@ async function executeAatman(userInput) {
         addMessage("🤖", data.reply);
         speak(data.reply);
     } catch (err) {
-        addMessage("⚠️", "Connection lost.");
+        addMessage("⚠️", "Connection error.");
     } finally {
-        recognition.start(); // Resume listening[cite: 3]
+        // Resume listening after a short delay
+        setTimeout(() => recognition.start(), 1000);
     }
 }
 
-recognition.onend = () => { if (!window.speechSynthesis.speaking) recognition.start(); };
+recognition.onend = () => {
+    if (!window.speechSynthesis.speaking) {
+        recognition.start();
+    }
+};
 
 function addMessage(sender, msg) {
     const p = document.createElement("p");
