@@ -6,7 +6,7 @@ chatDiv.parentNode.insertBefore(liveStatus, chatDiv);
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = new SpeechRecognition();
 
-recognition.lang = "en-US"; // Keep transcripts in English for easier trigger matching
+recognition.lang = "en-US"; 
 recognition.continuous = true;
 recognition.interimResults = true;
 
@@ -15,7 +15,8 @@ let isBotActive = false;
 function speak(text) {
     window.speechSynthesis.cancel();
     const msg = new SpeechSynthesisUtterance(text);
-    msg.lang = "mr-IN"; // Bot responds in Marathi
+    // Setting to Hindi/Marathi locale can sometimes help phonetics even if text is Latin script
+    msg.lang = "hi-IN"; 
     window.speechSynthesis.speak(msg);
 }
 
@@ -31,25 +32,20 @@ recognition.onresult = async (event) => {
     const currentText = (finalTranscript || interimTranscript).toLowerCase();
     liveStatus.textContent = isBotActive ? "🟢 Active: " + currentText : "⚪ Say 'Zero': " + currentText;
 
-    // 1. WAKE WORD DETECTION (Wait for 'Zero')
     if (!isBotActive && currentText.includes("zero")) {
         isBotActive = true;
-        speak("हो प्रनील, बोला."); // "Yes Pranil, speak."
+        speak("Ho Pranil, bola!"); 
         return;
     }
 
-    // 2. RESET DETECTION
     if (currentText.includes("over and out")) {
         isBotActive = false;
         executeRequest("over and out");
         return;
     }
 
-    // 3. CAPTURE QUERY (When user finishes speaking)
     if (isBotActive && event.results[event.results.length - 1].isFinal) {
         const query = event.results[event.results.length - 1][0].transcript.trim();
-        
-        // Don't send the wake word itself as a query
         if (query.toLowerCase() !== "zero") {
             executeRequest(query);
         }
@@ -57,7 +53,6 @@ recognition.onresult = async (event) => {
 };
 
 async function executeRequest(userInput) {
-    // Temporarily pause recognition to avoid bot hearing itself
     recognition.stop();
     addMessage("👤", userInput);
 
@@ -73,7 +68,6 @@ async function executeRequest(userInput) {
     } catch (err) {
         addMessage("⚠️", "Connection Error.");
     } finally {
-        // Resume listening once speech is done[cite: 3]
         const checkSpeech = setInterval(() => {
             if (!window.speechSynthesis.speaking) {
                 clearInterval(checkSpeech);
