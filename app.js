@@ -1,42 +1,38 @@
 const chatDiv = document.getElementById("chat");
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-let recognition = new SpeechRecognition();
-recognition.lang = "mr-IN"; // Set to Marathi
-recognition.continuous = true;
-recognition.interimResults = true;
+if (!SpeechRecognition) {
+    alert("Please use Chrome or Edge for voice features.");
+}
 
-let isBotActive = false;
+let recognition = new SpeechRecognition();
+recognition.lang = "mr-IN";
+recognition.continuous = true;
+recognition.interimResults = false;
 
 function speak(text) {
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "mr-IN";
-    window.speechSynthesis.speak(utterance);
+    const msg = new SpeechSynthesisUtterance(text);
+    msg.lang = "mr-IN";
+    window.speechSynthesis.speak(msg);
 }
 
 recognition.onresult = async (event) => {
-    let transcript = "";
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
-    }
-    
-    const lowerTranscript = transcript.toLowerCase();
+    const transcript = event.results[event.results.length - 1][0].transcript.trim();
+    const lowerText = transcript.toLowerCase();
 
-    // Wake word detection
-    if (lowerTranscript.includes("aatman") && !isBotActive) {
-        isBotActive = true;
-        processRequest(transcript.replace(/aatman/gi, "").trim());
+    // 1. Wake Word Check
+    if (lowerText.startsWith("aatman") || lowerText.includes("आत्मान")) {
+        const cleanInput = transcript.replace(/aatman/gi, "").replace(/आत्मान/gi, "").trim();
+        if (cleanInput) executeAatman(cleanInput);
     } 
-    // Close command
-    else if (lowerTranscript.includes("over and out")) {
-        processRequest("over and out");
+    // 2. Close Check
+    else if (lowerText.includes("over and out") || lowerText.includes("ओव्हर अँड आऊट")) {
+        executeAatman("over and out");
     }
 };
 
-async function processRequest(userInput) {
-    if (!userInput) return;
-    
+async function executeAatman(userInput) {
     addMessage("👤", userInput);
     
     try {
@@ -50,31 +46,26 @@ async function processRequest(userInput) {
         addMessage("🤖", data.reply);
         speak(data.reply);
 
-        if (data.action === "stop") {
-            isBotActive = false;
-            recognition.stop();
-        }
     } catch (err) {
-        addMessage("⚠️", "Connection error.");
-    } finally {
-        isBotActive = false;
+        console.error(err);
     }
 }
 
-// Keep the microphone alive
-recognition.onend = () => {
-    recognition.start();
-};
-
-// Start listening as soon as page is touched/loaded
-window.onload = () => {
-    recognition.start();
-    addMessage("🤖", "'aatman' म्हणून बोलायला सुरुवात करा...");
-};
+// Keep mic active for hands-free
+recognition.onend = () => recognition.start();
 
 function addMessage(sender, msg) {
     const p = document.createElement("p");
     p.innerHTML = `<strong>${sender}</strong>: ${msg}`;
     chatDiv.appendChild(p);
-    chatDiv.scrollTop = chatDiv.scrollHeight;
+    // RequestAnimationFrame prevents the "Forced Reflow" violation
+    requestAnimationFrame(() => {
+        chatDiv.scrollTop = chatDiv.scrollHeight;
+    });
 }
+
+// Auto-start listening on load
+window.onload = () => {
+    recognition.start();
+    console.log("Listening for 'Aatman'...");
+};
