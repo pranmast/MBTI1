@@ -1,157 +1,112 @@
 const chatDiv = document.getElementById("chat");
-const micBtn = document.getElementById("micBtn");
+const micBtn  = document.getElementById("micBtn");
 
-let mediaRecorder;
-let audioChunks = [];
-let isRecording = false;
+// --- Web Speech API setup ---
+// SpeechRecognition is built into Chrome and Edge — no cost, no server needed.
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-// --- MIME TYPE SELECTION ---
-// Browsers vary: Chrome supports webm/opus, Safari supports mp4, Firefox supports ogg.
-// We pick the first one the current browser actually supports.
-function getSupportedMimeType() {
-  const types = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-  for (const type of types) {
-    if (MediaRecorder.isTypeSupported(type)) {
-      console.log("Using mimeType:", type);
-      return type;
-    }
-  }
-  console.warn("No preferred mimeType supported — using browser default");
-  return ""; // Let the browser decide
+if (!SpeechRecognition) {
+  // Firefox and Safari don't support this — tell the user clearly
+  micBtn.disabled = true;
+  micBtn.textContent = "⚠️ Use Chrome or Edge";
+  addMessage("⚠️", "Your browser doesn't support speech recognition. Please open this in Chrome or Edge.");
 }
 
-micBtn.onclick = async () => {
-  if (isRecording) return; // Prevent double-clicks
+let recognition;
+let isListening = false;
 
-  try {
-    // NOTE: Do NOT request sampleRate here — browsers ignore it for MediaRecorder
-    // and it can cause getUserMedia to fail on some devices.
-    // pydub on the server handles resampling to 16kHz.
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+function setupRecognition() {
+  recognition = new SpeechRecognition();
 
-    const mimeType = getSupportedMimeType();
-    const options = mimeType ? { mimeType } : {};
-    mediaRecorder = new MediaRecorder(stream, options);
+  // Change to "mr-IN" if you want Marathi, "hi-IN" for Hindi
+  recognition.lang = "hi-IN";
 
-    audioChunks = [];
-    isRecording = true;
-    micBtn.textContent = "🔴 Recording... (tap to stop)";
+  // Get one final result and stop (not continuous streaming)
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
 
-    mediaRecorder.ondataavailable = (event) => {
-      // Only push non-empty chunks
-      if (event.data && event.data.size > 0) {
-        audioChunks.push(event.data);
-      }
-    };
+  recognition.onstart = () => {
+    isListening = true;
+    micBtn.textContent = "🔴 Listening... (tap to stop)";
+    micBtn.style.color = "red";
+  };
 
-    mediaRecorder.onstop = async () => {
-      isRecording = false;
-      micBtn.textContent = "⏳ Thinking...";
-      micBtn.disabled = true;
+  recognition.onresult = async (event) => {
+    const transcript = event.results[0][0].transcript.trim();
+    const confidence = event.results[0][0].confidence;
+    console.log(`DEBUG - Transcript: '${transcript}' (confidence: ${confidence.toFixed(2)})`);
 
-      // onstop already fires after ALL ondataavailable events —
-      // no setTimeout needed here
-      if (audioChunks.length === 0) {
-        addMessage("⚠️", "No audio captured. Check your microphone.");
-        resetBtn();
-        return;
-      }
-
-      // Use the actual mimeType the recorder used (not a hardcoded one)
-      const actualType = mediaRecorder.mimeType || "audio/webm";
-      const audioBlob = new Blob(audioChunks, { type: actualType });
-
-      console.log(`DEBUG - Blob: ${audioBlob.size} bytes, type: ${actualType}`);
-
-      if (audioBlob.size < 1000) {
-        addMessage("⚠️", "Recording was too short or silent. Please try again.");
-        resetBtn();
-        return;
-      }
-
-      const formData = new FormData();
-      // Give the file the right extension so pydub/ffmpeg can detect the format
-      const ext = actualType.includes("ogg") ? "ogg"
-                : actualType.includes("mp4") ? "mp4"
-                : "webm";
-      formData.append("file", audioBlob, `speech.${ext}`);
-
-      try {
-        const res = await fetch("https://pranilm-aatman.hf.space/speech", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!res.ok) {
-          throw new Error(`Server error: ${res.status}`);
-        }
-
-        const data = await res.json();
-        console.log("Server response:", data);
-
-        if (data.error) {
-          throw new Error(`Server: ${data.error}`);
-        }
-
-        if (!data.transcript || data.transcript.trim() === "") {
-          addMessage("⚠️", "आवाज ऐकू आला नाही. जवळून स्पष्टपणे बोला.");
-          resetBtn();
-          return;
-        }
-
-        addMessage("👤", data.transcript);
-
-        // Send transcript to LLM
-        const runRes = await fetch("https://pranilm-aatman.hf.space/run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input: data.transcript }),
-        });
-        const runData = await runRes.json();
-        addMessage("🤖", runData.reply || "...");
-
-      } catch (err) {
-        console.error("Fetch error:", err);
-        addMessage("⚠️", err.message);
-      } finally {
-        resetBtn();
-        stream.getTracks().forEach((track) => track.stop());
-      }
-    };
-
-    // Collect in 250ms chunks — 100ms creates too many tiny chunks
-    mediaRecorder.start(250);
-
-    // Auto-stop after 6 seconds
-    setTimeout(() => {
-      if (mediaRecorder && mediaRecorder.state === "recording") {
-        mediaRecorder.stop();
-      }
-    }, 6000);
-
-  } catch (err) {
-    console.error("Mic error:", err);
-    isRecording = false;
-    if (err.name === "NotAllowedError") {
-      alert("Microphone permission denied. Please allow mic access and try again.");
-    } else if (err.name === "NotFoundError") {
-      alert("No microphone found on this device.");
-    } else {
-      alert("Mic error: " + err.message);
+    if (!transcript) {
+      addMessage("⚠️", "आवाज ऐकू आला नाही. पुन्हा प्रयत्न करा.");
+      return;
     }
+
+    addMessage("👤", transcript);
+    micBtn.textContent = "⏳ Thinking...";
+    micBtn.disabled = true;
+
+    // Send transcript text to server — server only needs to handle LLM now
+    try {
+      const res = await fetch("https://pranilm-aatman.hf.space/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: transcript }),
+      });
+
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+
+      const data = await res.json();
+      addMessage("🤖", data.reply || "...");
+
+    } catch (err) {
+      console.error("LLM fetch error:", err);
+      addMessage("⚠️", "सर्व्हरशी कनेक्ट होता आले नाही.");
+    } finally {
+      resetBtn();
+    }
+  };
+
+  recognition.onerror = (event) => {
+    console.error("Speech recognition error:", event.error);
+    const messages = {
+      "not-allowed":  "Microphone permission denied. Please allow mic access in your browser.",
+      "no-speech":    "कोणताही आवाज ऐकू आला नाही. पुन्हा बोला.",
+      "network":      "Network error during speech recognition.",
+      "aborted":      "Recording stopped.",
+    };
+    const msg = messages[event.error] || `Speech error: ${event.error}`;
+    addMessage("⚠️", msg);
     resetBtn();
+  };
+
+  recognition.onend = () => {
+    isListening = false;
+    // Only reset button if we didn't get a result (onresult handles its own reset)
+    if (micBtn.textContent === "🔴 Listening... (tap to stop)") {
+      resetBtn();
+    }
+  };
+}
+
+micBtn.onclick = () => {
+  if (!SpeechRecognition) return;
+
+  if (isListening) {
+    // Tap again to stop early
+    recognition.stop();
+    return;
   }
+
+  setupRecognition();
+  recognition.start();
 };
 
 function resetBtn() {
   micBtn.textContent = "🎤 Start Recording";
+  micBtn.style.color = "";
   micBtn.disabled = false;
-  isRecording = false;
+  isListening = false;
 }
 
 function addMessage(sender, msg) {
