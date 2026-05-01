@@ -1,21 +1,21 @@
 const chatDiv = document.getElementById("chat");
 const liveStatus = document.createElement("div");
-liveStatus.style = "color: #28a745; font-weight: bold; margin-bottom: 10px; font-size: 0.9em;";
+liveStatus.style = "color: #007bff; font-weight: bold; margin-bottom: 10px; font-size: 0.9em; min-height: 1.5em;";
 chatDiv.parentNode.insertBefore(liveStatus, chatDiv);
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = new SpeechRecognition();
 
-recognition.lang = "en-US"; // Set to English for better trigger detection
+recognition.lang = "en-US"; // Keep transcripts in English for easier trigger matching
 recognition.continuous = true;
 recognition.interimResults = true;
 
-let isBotActive = false; // "Active Mode" flag
+let isBotActive = false;
 
 function speak(text) {
     window.speechSynthesis.cancel();
     const msg = new SpeechSynthesisUtterance(text);
-    msg.lang = "mr-IN"; // Bot still speaks Marathi
+    msg.lang = "mr-IN"; // Bot responds in Marathi
     window.speechSynthesis.speak(msg);
 }
 
@@ -28,33 +28,37 @@ recognition.onresult = async (event) => {
         else interimTranscript += event.results[i][0].transcript;
     }
 
-    const liveText = (finalTranscript || interimTranscript).toLowerCase();
-    liveStatus.textContent = isBotActive ? "🟢 Active: " + liveText : "⚪ Waiting for 'Zero': " + liveText;
+    const currentText = (finalTranscript || interimTranscript).toLowerCase();
+    liveStatus.textContent = isBotActive ? "🟢 Active: " + currentText : "⚪ Say 'Zero': " + currentText;
 
-    // 1. WAKE UP LOGIC
-    if (!isBotActive && liveText.includes("zero")) {
+    // 1. WAKE WORD DETECTION (Wait for 'Zero')
+    if (!isBotActive && currentText.includes("zero")) {
         isBotActive = true;
-        speak("हो प्रनील, मी ऐकतोय. बोला.");
+        speak("हो प्रनील, बोला."); // "Yes Pranil, speak."
         return;
     }
 
-    // 2. SLEEP / RESET LOGIC
-    if (liveText.includes("over and out")) {
+    // 2. RESET DETECTION
+    if (currentText.includes("over and out")) {
         isBotActive = false;
-        executeQuery("over and out");
+        executeRequest("over and out");
         return;
     }
 
-    // 3. CONTINUOUS PROCESSING (Only when Finalized)
-    if (isBotActive && finalTranscript.trim().length > 0) {
-        // Prevent the bot from replying to its own wake word
-        const cleanInput = finalTranscript.replace(/zero/gi, "").trim();
-        if (cleanInput) executeQuery(cleanInput);
+    // 3. CAPTURE QUERY (When user finishes speaking)
+    if (isBotActive && event.results[event.results.length - 1].isFinal) {
+        const query = event.results[event.results.length - 1][0].transcript.trim();
+        
+        // Don't send the wake word itself as a query
+        if (query.toLowerCase() !== "zero") {
+            executeRequest(query);
+        }
     }
 };
 
-async function executeQuery(userInput) {
-    recognition.stop(); // Stop mic while bot speaks[cite: 3]
+async function executeRequest(userInput) {
+    // Temporarily pause recognition to avoid bot hearing itself
+    recognition.stop();
     addMessage("👤", userInput);
 
     try {
@@ -67,12 +71,12 @@ async function executeQuery(userInput) {
         addMessage("🤖", data.reply);
         speak(data.reply);
     } catch (err) {
-        addMessage("⚠️", "Error.");
+        addMessage("⚠️", "Connection Error.");
     } finally {
-        // Wait for bot to finish speaking before listening again[cite: 3]
-        const checkSpeaking = setInterval(() => {
+        // Resume listening once speech is done[cite: 3]
+        const checkSpeech = setInterval(() => {
             if (!window.speechSynthesis.speaking) {
-                clearInterval(checkSpeaking);
+                clearInterval(checkSpeech);
                 recognition.start();
             }
         }, 500);
