@@ -1,78 +1,158 @@
 const chatDiv = document.getElementById("chat");
+const micBtn = document.getElementById("micBtn");
+
 let mediaRecorder;
 let audioChunks = [];
+let isRecording = false;
 
-// ... existing variables ...
+// --- MIME TYPE SELECTION ---
+// Browsers vary: Chrome supports webm/opus, Safari supports mp4, Firefox supports ogg.
+// We pick the first one the current browser actually supports.
+function getSupportedMimeType() {
+  const types = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
+  for (const type of types) {
+    if (MediaRecorder.isTypeSupported(type)) {
+      console.log("Using mimeType:", type);
+      return type;
+    }
+  }
+  console.warn("No preferred mimeType supported — using browser default");
+  return ""; // Let the browser decide
+}
 
-document.getElementById("micBtn").onclick = async () => {
+micBtn.onclick = async () => {
+  if (isRecording) return; // Prevent double-clicks
+
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { sampleRate: 16000, channelCount: 1 } 
-    });
+    // NOTE: Do NOT request sampleRate here — browsers ignore it for MediaRecorder
+    // and it can cause getUserMedia to fail on some devices.
+    // pydub on the server handles resampling to 16kHz.
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-    // Use a more generic mimeType if webm fails
-    const options = { mimeType: 'audio/webm;codecs=opus' };
+    const mimeType = getSupportedMimeType();
+    const options = mimeType ? { mimeType } : {};
     mediaRecorder = new MediaRecorder(stream, options);
-    
-    audioChunks = []; // Clear previous data
 
-    mediaRecorder.ondataavailable = event => {
-      if (event.data.size > 0) audioChunks.push(event.data);
+    audioChunks = [];
+    isRecording = true;
+    micBtn.textContent = "🔴 Recording... (tap to stop)";
+
+    mediaRecorder.ondataavailable = (event) => {
+      // Only push non-empty chunks
+      if (event.data && event.data.size > 0) {
+        audioChunks.push(event.data);
+      }
     };
 
     mediaRecorder.onstop = async () => {
-      // 1. SMALL DELAY: Ensure the last chunk is pushed
-      await new Promise(resolve => setTimeout(resolve, 200));
+      isRecording = false;
+      micBtn.textContent = "⏳ Thinking...";
+      micBtn.disabled = true;
 
+      // onstop already fires after ALL ondataavailable events —
+      // no setTimeout needed here
       if (audioChunks.length === 0) {
-          addMessage("⚠️", "No audio captured.");
-          return;
+        addMessage("⚠️", "No audio captured. Check your microphone.");
+        resetBtn();
+        return;
       }
 
-      // 2. BLOB CREATION
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-      const formData = new FormData();
-      formData.append("file", audioBlob, "speech.webm"); // Use .webm extension
+      // Use the actual mimeType the recorder used (not a hardcoded one)
+      const actualType = mediaRecorder.mimeType || "audio/webm";
+      const audioBlob = new Blob(audioChunks, { type: actualType });
 
-      document.getElementById("micBtn").textContent = "⏳ Thinking...";
+      console.log(`DEBUG - Blob: ${audioBlob.size} bytes, type: ${actualType}`);
+
+      if (audioBlob.size < 1000) {
+        addMessage("⚠️", "Recording was too short or silent. Please try again.");
+        resetBtn();
+        return;
+      }
+
+      const formData = new FormData();
+      // Give the file the right extension so pydub/ffmpeg can detect the format
+      const ext = actualType.includes("ogg") ? "ogg"
+                : actualType.includes("mp4") ? "mp4"
+                : "webm";
+      formData.append("file", audioBlob, `speech.${ext}`);
 
       try {
         const res = await fetch("https://pranilm-aatman.hf.space/speech", {
           method: "POST",
-          body: formData
+          body: formData,
         });
 
+        if (!res.ok) {
+          throw new Error(`Server error: ${res.status}`);
+        }
+
         const data = await res.json();
-        
-        // DEBUG: See what the server actually caught
-        console.log("Server Debug:", data);
+        console.log("Server response:", data);
+
+        if (data.error) {
+          throw new Error(`Server: ${data.error}`);
+        }
 
         if (!data.transcript || data.transcript.trim() === "") {
-            throw new Error("Vosk heard nothing. Try holding the mic closer.");
+          addMessage("⚠️", "आवाज ऐकू आला नाही. जवळून स्पष्टपणे बोला.");
+          resetBtn();
+          return;
         }
-        
+
         addMessage("👤", data.transcript);
 
-        // ... rest of chatbot logic ...
+        // Send transcript to LLM
+        const runRes = await fetch("https://pranilm-aatman.hf.space/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input: data.transcript }),
+        });
+        const runData = await runRes.json();
+        addMessage("🤖", runData.reply || "...");
 
       } catch (err) {
+        console.error("Fetch error:", err);
         addMessage("⚠️", err.message);
       } finally {
-        document.getElementById("micBtn").textContent = "🎤 Start Recording";
-        stream.getTracks().forEach(track => track.stop());
+        resetBtn();
+        stream.getTracks().forEach((track) => track.stop());
       }
     };
 
-    mediaRecorder.start(100); // Collect data in 100ms chunks for reliability
-    
-    setTimeout(() => { 
-        if(mediaRecorder.state === "recording") mediaRecorder.stop(); 
-    }, 4000);
+    // Collect in 250ms chunks — 100ms creates too many tiny chunks
+    mediaRecorder.start(250);
+
+    // Auto-stop after 6 seconds
+    setTimeout(() => {
+      if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+      }
+    }, 6000);
 
   } catch (err) {
-    alert("Mic access error.");
+    console.error("Mic error:", err);
+    isRecording = false;
+    if (err.name === "NotAllowedError") {
+      alert("Microphone permission denied. Please allow mic access and try again.");
+    } else if (err.name === "NotFoundError") {
+      alert("No microphone found on this device.");
+    } else {
+      alert("Mic error: " + err.message);
+    }
+    resetBtn();
   }
 };
+
+function resetBtn() {
+  micBtn.textContent = "🎤 Start Recording";
+  micBtn.disabled = false;
+  isRecording = false;
+}
 
 function addMessage(sender, msg) {
   const p = document.createElement("p");
