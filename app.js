@@ -1,74 +1,80 @@
 const chatDiv = document.getElementById("chat");
-const micBtn  = document.getElementById("micBtn");
-
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let isListening = false;
 
-// --- Text to Speech Function ---
+let recognition = new SpeechRecognition();
+recognition.lang = "mr-IN"; // Set to Marathi
+recognition.continuous = true;
+recognition.interimResults = true;
+
+let isBotActive = false;
+
 function speak(text) {
-  window.speechSynthesis.cancel(); // Stop any current speech
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "mr-IN"; // Set voice to Marathi
-  utterance.rate = 1.0;
-  window.speechSynthesis.speak(utterance);
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "mr-IN";
+    window.speechSynthesis.speak(utterance);
 }
 
-if (!SpeechRecognition) {
-  micBtn.disabled = true;
-  addMessage("⚠️", "तुमचा ब्राउझर समर्थित नाही.");
-}
-
-function setupRecognition() {
-  const recognition = new SpeechRecognition();
-  recognition.lang = "mr-IN"; 
-  recognition.onstart = () => {
-    isListening = true;
-    micBtn.textContent = "🔴 ऐकत आहे...";
-  };
-
-  recognition.onresult = async (event) => {
-    const transcript = event.results[0][0].transcript;
-    addMessage("👤", transcript);
-    micBtn.textContent = "⏳ शोधत आहे...";
-
-    try {
-      const res = await fetch("https://pranilm-aatman.hf.space/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: transcript }),
-      });
-      
-      const data = await res.json();
-      const reply = data.reply;
-      
-      addMessage("🤖", reply);
-      speak(reply); // Trigger Voice Output
-
-    } catch (err) {
-      addMessage("⚠️", "त्रुटी आली.");
-    } finally {
-      resetBtn();
+recognition.onresult = async (event) => {
+    let transcript = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
     }
-  };
+    
+    const lowerTranscript = transcript.toLowerCase();
 
-  recognition.onerror = () => resetBtn();
-  recognition.onend = () => resetBtn();
-  recognition.start();
-}
-
-micBtn.onclick = () => {
-  if (isListening) return;
-  setupRecognition();
+    // Wake word detection
+    if (lowerTranscript.includes("aatman") && !isBotActive) {
+        isBotActive = true;
+        processRequest(transcript.replace(/aatman/gi, "").trim());
+    } 
+    // Close command
+    else if (lowerTranscript.includes("over and out")) {
+        processRequest("over and out");
+    }
 };
 
-function resetBtn() {
-  isListening = false;
-  micBtn.textContent = "🎤 बोला";
+async function processRequest(userInput) {
+    if (!userInput) return;
+    
+    addMessage("👤", userInput);
+    
+    try {
+        const res = await fetch("https://pranilm-aatman.hf.space/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ input: userInput }),
+        });
+
+        const data = await res.json();
+        addMessage("🤖", data.reply);
+        speak(data.reply);
+
+        if (data.action === "stop") {
+            isBotActive = false;
+            recognition.stop();
+        }
+    } catch (err) {
+        addMessage("⚠️", "Connection error.");
+    } finally {
+        isBotActive = false;
+    }
 }
 
+// Keep the microphone alive
+recognition.onend = () => {
+    recognition.start();
+};
+
+// Start listening as soon as page is touched/loaded
+window.onload = () => {
+    recognition.start();
+    addMessage("🤖", "'aatman' म्हणून बोलायला सुरुवात करा...");
+};
+
 function addMessage(sender, msg) {
-  const p = document.createElement("p");
-  p.innerHTML = `<strong>${sender}</strong>: ${msg}`;
-  chatDiv.appendChild(p);
-  chatDiv.scrollTop = chatDiv.scrollHeight;
+    const p = document.createElement("p");
+    p.innerHTML = `<strong>${sender}</strong>: ${msg}`;
+    chatDiv.appendChild(p);
+    chatDiv.scrollTop = chatDiv.scrollHeight;
 }
