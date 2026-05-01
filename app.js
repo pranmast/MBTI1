@@ -3,20 +3,19 @@ const liveStatus = document.createElement("div");
 liveStatus.style = "color: #007bff; font-weight: bold; margin-bottom: 10px; font-size: 0.9em; min-height: 1.5em;";
 chatDiv.parentNode.insertBefore(liveStatus, chatDiv);
 
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const SpeechRecognition = window.Recognition || window.webkitSpeechRecognition;
 let recognition = new SpeechRecognition();
 
 recognition.lang = "en-US"; 
 recognition.continuous = true;
 recognition.interimResults = true;
 
-let isBotActive = false;
-let silenceTimer = null; // Timer for 2 seconds of silence
+let silenceTimer = null;
 
 function speak(text) {
     window.speechSynthesis.cancel();
     const msg = new SpeechSynthesisUtterance(text);
-    msg.lang = "hi-IN"; 
+    msg.lang = "hi-IN"; // Set to Hindi/Marathi friendly voice
     window.speechSynthesis.speak(msg);
 }
 
@@ -27,25 +26,15 @@ recognition.onresult = (event) => {
     }
 
     const currentText = interimTranscript.toLowerCase().trim();
-    liveStatus.textContent = isBotActive ? "🟢 Listening: " + currentText : "⚪ Say 'Zero': " + currentText;
+    liveStatus.textContent = "🟢 Listening: " + currentText;
 
-    // 1. WAKE WORD CHECK
-    if (!isBotActive && currentText.includes("zero")) {
-        isBotActive = true;
-        speak("Ho Pranil, bola!"); 
-        return;
-    }
-
-    // 2. SILENCE DETECTION (Wait 2 seconds before sending)
-    if (isBotActive) {
-        clearTimeout(silenceTimer); // Reset timer every time you speak
-        
-        silenceTimer = setTimeout(() => {
-            if (currentText.length > 0 && currentText !== "zero") {
-                executeRequest(currentText);
-            }
-        }, 2000); // 2 seconds of silence
-    }
+    // SILENCE DETECTION: Wait 3 seconds of total silence before sending
+    clearTimeout(silenceTimer); 
+    silenceTimer = setTimeout(() => {
+        if (currentText.length > 0) {
+            executeRequest(currentText);
+        }
+    }, 3000); 
 };
 
 async function executeRequest(userInput) {
@@ -54,7 +43,8 @@ async function executeRequest(userInput) {
     addMessage("👤", userInput);
 
     try {
-        const res = await fetch("https://pranilm-aatman.hf.space/run", {
+        // Points to your local FastAPI backend
+        const res = await fetch("/run", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ input: userInput }),
@@ -63,12 +53,14 @@ async function executeRequest(userInput) {
         addMessage("🤖", data.reply);
         speak(data.reply);
     } catch (err) {
-        addMessage("⚠️", "Connection Error.");
+        addMessage("⚠️", "Connection Error. Check if Space is sleeping.");
     } finally {
+        // Wait for bot to finish speaking before listening again
         const checkSpeech = setInterval(() => {
             if (!window.speechSynthesis.speaking) {
                 clearInterval(checkSpeech);
                 recognition.start();
+                liveStatus.textContent = "🟢 Listening...";
             }
         }, 500);
     }
