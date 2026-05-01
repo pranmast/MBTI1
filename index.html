@@ -1,13 +1,65 @@
 <!DOCTYPE html>
 <html lang="mr">
 <head>
-  <meta charset="UTF-8">
-  <title>Marathi Chatbot</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aatman AI</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            width: 90%;
+            max-width: 500px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+        h2 { color: #4a148c; margin-bottom: 10px; }
+        #chat {
+            height: 350px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 15px;
+            text-align: left;
+            background: #f9f9f9;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+        .msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 10px; max-width: 80%; }
+        .user-msg { background: #e3f2fd; align-self: flex-end; color: #0d47a1; }
+        .bot-msg { background: #f3e5f5; align-self: flex-start; color: #4a148c; }
+        #status { font-size: 0.85em; color: #666; margin-bottom: 10px; height: 1.2em; }
+        #micBtn {
+            background: #764ba2;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: 0.3s;
+        }
+        #micBtn:hover { background: #4a148c; transform: scale(1.05); }
+    </style>
 </head>
 <body>
-  <h2>Marathi Speech Chatbot</h2>
-  <button id="micBtn">🎙️ बोलायला सुरुवात करा</button>
-  <div id="chat"></div>
-  <script src="app.js"></script>
+    <div class="container">
+        <h2>Aatman AI 🤖</h2>
+        <div id="status">Waiting for mic permission...</div>
+        <div id="chat"></div>
+        <button id="micBtn">🎙️ Start Speaking</button>
+    </div>
+    <script src="app.js"></script>
 </body>
 </html>
