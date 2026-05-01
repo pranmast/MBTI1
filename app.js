@@ -11,49 +11,46 @@ recognition.continuous = true;
 recognition.interimResults = true;
 
 let isBotActive = false;
+let silenceTimer = null; // Timer for 2 seconds of silence
 
 function speak(text) {
     window.speechSynthesis.cancel();
     const msg = new SpeechSynthesisUtterance(text);
-    // Setting to Hindi/Marathi locale can sometimes help phonetics even if text is Latin script
     msg.lang = "hi-IN"; 
     window.speechSynthesis.speak(msg);
 }
 
-recognition.onresult = async (event) => {
+recognition.onresult = (event) => {
     let interimTranscript = "";
-    let finalTranscript = "";
-
     for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-        else interimTranscript += event.results[i][0].transcript;
+        interimTranscript += event.results[i][0].transcript;
     }
 
-    const currentText = (finalTranscript || interimTranscript).toLowerCase();
-    liveStatus.textContent = isBotActive ? "🟢 Active: " + currentText : "⚪ Say 'Zero': " + currentText;
+    const currentText = interimTranscript.toLowerCase().trim();
+    liveStatus.textContent = isBotActive ? "🟢 Listening: " + currentText : "⚪ Say 'Zero': " + currentText;
 
+    // 1. WAKE WORD CHECK
     if (!isBotActive && currentText.includes("zero")) {
         isBotActive = true;
         speak("Ho Pranil, bola!"); 
         return;
     }
 
-    if (currentText.includes("over and out")) {
-        isBotActive = false;
-        executeRequest("over and out");
-        return;
-    }
-
-    if (isBotActive && event.results[event.results.length - 1].isFinal) {
-        const query = event.results[event.results.length - 1][0].transcript.trim();
-        if (query.toLowerCase() !== "zero") {
-            executeRequest(query);
-        }
+    // 2. SILENCE DETECTION (Wait 2 seconds before sending)
+    if (isBotActive) {
+        clearTimeout(silenceTimer); // Reset timer every time you speak
+        
+        silenceTimer = setTimeout(() => {
+            if (currentText.length > 0 && currentText !== "zero") {
+                executeRequest(currentText);
+            }
+        }, 2000); // 2 seconds of silence
     }
 };
 
 async function executeRequest(userInput) {
     recognition.stop();
+    clearTimeout(silenceTimer);
     addMessage("👤", userInput);
 
     try {
